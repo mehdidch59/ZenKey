@@ -19,31 +19,69 @@ export default function ZenKeyApp() {
   const [scanProgress, setScanProgress] = useState(0);
   const [isButtonPressed, setIsButtonPressed] = useState(false);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [registerConfirm, setRegisterConfirm] = useState("");
+  const [registerMessage, setRegisterMessage] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginMessage, setLoginMessage] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+
+  type InfectedFile = {
+    path: string;
+    threat: string;
+    removed: boolean;
+  };
+
+  const [infectedFiles, setInfectedFiles] = useState<InfectedFile[]>([]);
 
   // Détecter si l'appareil est tactile
   useEffect(() => {
     console.log("Tentative de connexion WebSocket...");
-  
+
     socket.on("connect", () => {
       console.log("✅ Connecté au WebSocket !");
     });
-  
+
     socket.on("status", (data) => {
       console.log("📡 Status :", data.msg);
     });
-  
+
     socket.on("scan_result", (data) => {
       console.log("🧪 Résultat reçu :", data);
-  
-      if (data.status === "done") {
-        const menace = !data.report.includes("Infected files: 0");
-        console.log("👉 Analyse terminée, menace détectée ?", menace);
-        setScanStatus(menace ? "threat" : "clean");
-      } else {
+
+      if (!data?.report) {
+        console.warn("⚠️ Pas de rapport reçu !");
         setScanStatus("idle");
+        return;
       }
+
+      const report = data.report;
+      const infectedMatch = report.match(/Infected files:\s*(\d+)/i);
+      const infectedCount = infectedMatch ? parseInt(infectedMatch[1], 10) : 0;
+
+      const lines = report.split("\n");
+      const foundFiles = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const match = line.match(/^(.*?): (.+) FOUND$/i);
+        if (match) {
+          const filePath = match[1];
+          const threatName = match[2];
+          const removed = lines[i + 1]?.includes("Removed.");
+          foundFiles.push({ path: filePath, threat: threatName, removed });
+        }
+      }
+
+      setInfectedFiles(foundFiles);
+      setScanStatus(infectedCount > 0 ? "threat" : "clean");
     });
-  
+
+
+
     return () => {
       socket.off("connect");
       socket.off("status");
@@ -64,13 +102,25 @@ export default function ZenKeyApp() {
   };
 
   const handleScan = () => {
+    if (!isAuthenticated) {
+      alert("🚫 Vous devez être connecté pour lancer une analyse.");
+      return;
+    }
+
     setScanStatus("scanning");
+    setInfectedFiles([]);
     setScanProgress(0);
     setIsButtonPressed(true);
     setTimeout(() => setIsButtonPressed(false), 300);
 
     // Envoi d'une commande de scan au backend
     socket.emit("analyze");
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUserEmail("");
+    setPage("auth");
   };
 
   // Calculer les paramètres du cercle de progression
@@ -95,11 +145,10 @@ export default function ZenKeyApp() {
               </Button>
               <Button
                 variant="ghost"
-                className={getIosButtonStyles(page === "auth")}
-                onClick={() => setPage("auth")}
+                className={getIosButtonStyles(page === "auth" || page === "profile")}
+                onClick={() => setPage(isAuthenticated ? "profile" : "auth")}
               >
-                <UserCircle size={20} className={page === "auth" ? "text-blue-500" : "text-gray-500"} />
-                <span className={cn("text-xs", page === "auth" ? "text-blue-500" : "text-gray-500")}>Compte</span>
+                <UserCircle size={20} /><span className={cn("text-xs", page === "auth" || page === "profile" ? "text-blue-500" : "text-gray-500")}>{isAuthenticated ? "Profil" : "Compte"}</span>
               </Button>
               <Button
                 variant="ghost"
@@ -208,6 +257,7 @@ export default function ZenKeyApp() {
 
                   {/* Bouton de scan style iOS */}
                   <Button
+                    disabled={!isAuthenticated}
                     className={cn(
                       "w-40 h-40 rounded-full text-lg transition-all duration-300 z-10",
                       "bg-gradient-to-b from-blue-500 to-blue-600",
@@ -222,7 +272,8 @@ export default function ZenKeyApp() {
                         "bg-gradient-to-b from-blue-600 to-blue-700": scanStatus === "scanning",
                         "bg-gradient-to-b from-green-500 to-green-600": scanStatus === "clean",
                         "bg-gradient-to-b from-red-500 to-red-600": scanStatus === "threat"
-                      }
+                      },
+                      !isAuthenticated && "opacity-50 cursor-not-allowed"
                     )}
                     onClick={handleScan}
                     onTouchStart={() => setIsButtonPressed(true)}
@@ -269,6 +320,23 @@ export default function ZenKeyApp() {
                       <span className="text-lg font-medium">Menace détectée ⚠️</span>
                     </div>
                   )}
+                  {infectedFiles.length > 0 && (
+                    <div className="mt-4 text-left text-sm bg-white/70 rounded-xl p-4 shadow border border-red-200">
+                      <p className="font-semibold text-red-700 mb-2">Détails des fichiers infectés :</p>
+                      <ul className="list-disc ml-6 space-y-1">
+                        {infectedFiles.map((file, index) => (
+                          <li key={index}>
+                            <span className="font-medium text-gray-800">{file.path}</span><br />
+                            <span className="text-red-600">{file.threat}</span> —{" "}
+                            <span className={file.removed ? "text-green-600" : "text-yellow-600"}>
+                              {file.removed ? "Supprimé ✅" : "Non supprimé ⚠️"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                 </div>
               </div>
             )}
@@ -296,8 +364,8 @@ export default function ZenKeyApp() {
                   <TabsContent value="login">
                     <Card className="border-0 shadow-md rounded-3xl">
                       <CardContent className="p-4 space-y-4">
-                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Email" type="email" inputMode="email" />
-                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Mot de passe" type="password" />
+                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Email" type="email" inputMode="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} />
+                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Mot de passe" type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} />
                         <Button
                           className={cn(
                             "w-full py-4 text-base rounded-full shadow-md transition-all duration-300",
@@ -307,6 +375,33 @@ export default function ZenKeyApp() {
                             !isTouchDevice && "hover:shadow-lg hover:shadow-blue-300/20",
                             "focus:outline-none focus:ring-2 focus:ring-blue-400/50"
                           )}
+                          onClick={async () => {
+                            try {
+                              const res = await fetch("http://localhost:5000/login", {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json"
+                                },
+                                body: JSON.stringify({
+                                  email: loginEmail,
+                                  password: loginPassword
+                                })
+                              });
+
+                              const data = await res.json();
+                              if (!res.ok) {
+                                setLoginMessage(`❌ ${data.error}`);
+                              } else {
+                                setLoginMessage("✅ Connexion réussie !");
+                                setIsAuthenticated(true);
+                                setUserEmail(loginEmail); // Ajouter cette ligne pour définir l'email
+                                setPage("home");
+                              }
+                            } catch (err) {
+                              console.error(err);
+                              setLoginMessage("❌ Erreur de connexion au serveur");
+                            }
+                          }}
                         >
                           Se connecter
                         </Button>
@@ -316,9 +411,9 @@ export default function ZenKeyApp() {
                   <TabsContent value="register">
                     <Card className="border-0 shadow-md rounded-3xl">
                       <CardContent className="p-4 space-y-4">
-                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Email" type="email" />
-                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Mot de passe" type="password" />
-                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Confirmer le mot de passe" type="password" />
+                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Email" type="email" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} />
+                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Mot de passe" type="password" value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} />
+                        <Input className="text-base py-4 rounded-2xl bg-gray-50/80 backdrop-blur-sm border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="Confirmer le mot de passe" type="password" value={registerConfirm} onChange={(e) => setRegisterConfirm(e.target.value)} />
                         <Button
                           className={cn(
                             "w-full py-4 text-base rounded-full shadow-md transition-all duration-300",
@@ -328,9 +423,47 @@ export default function ZenKeyApp() {
                             !isTouchDevice && "hover:shadow-lg hover:shadow-blue-300/20",
                             "focus:outline-none focus:ring-2 focus:ring-blue-400/50"
                           )}
+                          // Dans le gestionnaire de clic pour l'inscription
+                          onClick={async () => {
+                            if (registerPassword !== registerConfirm) {
+                              setRegisterMessage("Les mots de passe ne correspondent pas !");
+                              return;
+                            }
+                            try {
+                              const res = await fetch("http://localhost:5000/register", {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json"
+                                },
+                                body: JSON.stringify({
+                                  email: registerEmail,
+                                  password: registerPassword,
+                                  role: "user"
+                                })
+                              });
+                              const data = await res.json();
+                              if (!res.ok) {
+                                setRegisterMessage(`❌ ${data.error}`);
+                              } else {
+                                setRegisterMessage("✅ Compte créé !");
+                                setIsAuthenticated(true);
+                                setUserEmail(registerEmail); // Ajouter cette ligne pour définir l'email
+                                setPage("home");
+                              }
+                            } catch (err) {
+                              console.error(err);
+                              setRegisterMessage("❌ Erreur de connexion au serveur");
+                            }
+                          }}
                         >
                           Créer un compte
                         </Button>
+                        {loginMessage && (
+                          <p className="text-sm mt-2 text-center text-gray-700">{loginMessage}</p>
+                        )}
+                        {registerMessage && (
+                          <p className="text-sm mt-2 text-center text-gray-700">{registerMessage}</p>
+                        )}
                       </CardContent>
                     </Card>
                   </TabsContent>
@@ -464,9 +597,56 @@ export default function ZenKeyApp() {
                 </Card>
               </div>
             )}
+            {page === "profile" && isAuthenticated && (
+              <div className="max-w-md mx-auto space-y-6">
+                <Card className="border-0 shadow-md rounded-3xl overflow-hidden">
+                  <CardContent className="p-5 space-y-4">
+                    <div className="text-center">
+                      <div className="w-20 h-20 bg-blue-100 mx-auto rounded-full flex items-center justify-center mb-4">
+                        <UserCircle size={40} className="text-blue-500" />
+                      </div>
+                      <h2 className="text-2xl font-semibold">Bienvenue</h2>
+                      <p className="text-blue-600 font-medium bg-blue-50 py-2 px-4 rounded-full inline-block mt-2">
+                        {userEmail}
+                      </p>
+                    </div>
+
+                    <div className="space-y-4 mt-6">
+                      <Card className="rounded-2xl border-0 shadow-sm bg-gray-50/80 backdrop-blur-sm p-4">
+                        <p className="font-medium text-gray-700 mb-2">Vos statistiques</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white p-3 rounded-xl shadow-sm">
+                            <p className="text-gray-500 text-xs">Scans effectués</p>
+                            <p className="text-xl font-bold text-gray-800">8</p>
+                          </div>
+                          <div className="bg-white p-3 rounded-xl shadow-sm">
+                            <p className="text-gray-500 text-xs">Menaces détectées</p>
+                            <p className="text-xl font-bold text-gray-800">2</p>
+                          </div>
+                        </div>
+                      </Card>
+
+                      <Button
+                        onClick={handleLogout}
+                        className={cn(
+                          "w-full py-3 rounded-full shadow-md transition-all duration-300",
+                          "bg-gradient-to-b from-red-500 to-red-600 text-white",
+                          "border border-red-400/50",
+                          "active:scale-95 active:shadow-inner",
+                          !isTouchDevice && "hover:shadow-lg",
+                          "focus:outline-none focus:ring-2 focus:ring-red-400/50"
+                        )}
+                      >
+                        Se déconnecter
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
-    </div>
+    </div >
   );
 }
