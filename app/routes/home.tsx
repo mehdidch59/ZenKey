@@ -11,6 +11,7 @@ import {
   Legend, ResponsiveContainer
 } from 'recharts';
 import socket from "~/lib/socket";
+import { toast } from "sonner";
 
 export default function ZenKeyApp() {
   const [page, setPage] = useState("home");
@@ -28,6 +29,9 @@ export default function ZenKeyApp() {
   const [loginMessage, setLoginMessage] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [usbState, setUsbState] = useState<"waiting" | "inserted" | "removed">("waiting");
+  const [usbPath, setUsbPath] = useState("");
 
   type InfectedFile = {
     path: string;
@@ -49,8 +53,38 @@ export default function ZenKeyApp() {
       console.log("📡 Status :", data.msg);
     });
 
+    socket.on("usb_status", (data) => {
+      console.log("💾 État USB reçu :", data);
+      setUsbState(data.state);
+      setUsbPath(data.path);
+    });
+
+    socket.emit("usb_check");
+
+    socket.on("usb_inserted", (data) => {
+      console.log("🟢 USB détectée", data);
+      setUsbState("inserted");
+      setUsbPath(data.path);
+    });
+
+    socket.on("usb_removed", () => {
+      console.log("🔴 USB retirée");
+      setUsbState("removed");
+      setUsbPath("");
+    });
+
+    setUsbState("waiting");
+
     socket.on("scan_result", (data) => {
       console.log("🧪 Résultat reçu :", data);
+
+      if (data.status === "error") {
+        setScanStatus("error");
+        setInfectedFiles([]);
+        setScanProgress(0);
+        setErrorMessage(data.report || "❌ Erreur inconnue");
+        return;
+      }
 
       if (!data?.report) {
         console.warn("⚠️ Pas de rapport reçu !");
@@ -80,12 +114,15 @@ export default function ZenKeyApp() {
       setScanStatus(infectedCount > 0 ? "threat" : "clean");
     });
 
-
+    console.log(usbState);
 
     return () => {
       socket.off("connect");
       socket.off("status");
+      socket.off("usb_status");
       socket.off("scan_result");
+      socket.off("usb_inserted");
+      socket.off("usb_removed");
     };
   }, []);
 
@@ -118,9 +155,17 @@ export default function ZenKeyApp() {
   };
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
     setUserEmail("");
-    setPage("auth");
+    setLoginEmail("");
+    setLoginPassword("");
+    setRegisterEmail("");
+    setRegisterPassword("");
+    setRegisterConfirm("");
+    toast.success("✅ Déconnexion réussie !");
+    setTimeout(() => {
+      setIsAuthenticated(false);
+      setPage("auth");
+    }, 2000);
   };
 
   // Calculer les paramètres du cercle de progression
@@ -172,13 +217,32 @@ export default function ZenKeyApp() {
                   <h2 className="text-2xl font-semibold">Décontamination USB</h2>
                 </div>
 
+                {usbState === "inserted" && (
+                  <div className="text-green-700 bg-green-100 rounded-xl p-2 mb-2 shadow border border-green-200">
+                    ✅ Clé USB détectée : <span className="font-mono">{usbPath}</span>
+                  </div>
+                )}
+
+                {usbState === "removed" && (
+                  <div className="text-red-700 bg-red-100 rounded-xl p-2 mb-2 shadow border border-red-200">
+                    ❌ Aucune clé USB détectée
+                  </div>
+                )}
+
+                {usbState === "waiting" && (
+                  <div className="text-gray-600 bg-gray-100 rounded-xl p-2 mb-2 shadow border border-gray-200">
+                    🔍 En attente de clé USB...
+                  </div>
+                )}
+
                 <div className={cn(
                   "w-64 h-64 mx-auto rounded-full flex items-center justify-center transition-all duration-300 relative",
                   {
                     "bg-blue-50": scanStatus === "idle",
                     "bg-blue-100": scanStatus === "scanning",
                     "bg-green-50": scanStatus === "clean",
-                    "bg-red-50": scanStatus === "threat"
+                    "bg-red-50": scanStatus === "threat",
+                    "bg-red-100": scanStatus === "error"
                   }
                 )}>
                   {/* Cercle de progression SVG optimisé */}
@@ -190,8 +254,11 @@ export default function ZenKeyApp() {
                           scanStatus === "idle" ? "rgba(59, 130, 246, 0.6)" :
                             scanStatus === "scanning" ? "rgba(59, 130, 246, 0.8)" :
                               scanStatus === "clean" ? "rgba(34, 197, 94, 0.6)" :
-                                "rgba(239, 68, 68, 0.6)"
+                                scanStatus === "threat" ? "rgba(239, 68, 68, 0.6)" :
+                                  scanStatus === "error" ? "rgba(239, 68, 68, 0.6)" :
+                                    "rgba(107, 114, 128, 0.4)"
                         } />
+
                         <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
                       </radialGradient>
 
@@ -199,13 +266,19 @@ export default function ZenKeyApp() {
                         <stop offset="0%" stopColor={
                           scanStatus === "scanning" ? "#3b82f6" :
                             scanStatus === "clean" ? "#10b981" :
-                              scanStatus === "threat" ? "#ef4444" : "#3b82f6"
+                              scanStatus === "threat" ? "#ef4444" :
+                                scanStatus === "error" ? "#ef4444" :
+                                  "#3b82f6"
                         } />
+
                         <stop offset="100%" stopColor={
                           scanStatus === "scanning" ? "#6366f1" :
                             scanStatus === "clean" ? "#22c55e" :
-                              scanStatus === "threat" ? "#f87171" : "#6366f1"
+                              scanStatus === "threat" ? "#f87171" :
+                                scanStatus === "error" ? "#f87171" :
+                                  "#6366f1"
                         } />
+
                       </linearGradient>
 
                       <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -271,7 +344,7 @@ export default function ZenKeyApp() {
                         "bg-gradient-to-b from-blue-500 to-blue-600": scanStatus === "idle",
                         "bg-gradient-to-b from-blue-600 to-blue-700": scanStatus === "scanning",
                         "bg-gradient-to-b from-green-500 to-green-600": scanStatus === "clean",
-                        "bg-gradient-to-b from-red-500 to-red-600": scanStatus === "threat"
+                        "bg-gradient-to-b from-red-500 to-red-600": scanStatus === "threat" || scanStatus === "error"
                       },
                       !isAuthenticated && "opacity-50 cursor-not-allowed"
                     )}
@@ -320,6 +393,13 @@ export default function ZenKeyApp() {
                       <span className="text-lg font-medium">Menace détectée ⚠️</span>
                     </div>
                   )}
+                  {scanStatus === "error" && errorMessage && (
+                    <div className="flex items-center justify-center gap-2 text-red-600 bg-red-50/80 backdrop-blur-sm p-3 rounded-xl shadow-sm border border-red-100 mt-4">
+                      <ShieldAlert size={20} />
+                      <span className="text-lg font-medium">{errorMessage}</span>
+                    </div>
+                  )}
+
                   {infectedFiles.length > 0 && (
                     <div className="mt-4 text-left text-sm bg-white/70 rounded-xl p-4 shadow border border-red-200">
                       <p className="font-semibold text-red-700 mb-2">Détails des fichiers infectés :</p>
@@ -390,16 +470,18 @@ export default function ZenKeyApp() {
 
                               const data = await res.json();
                               if (!res.ok) {
-                                setLoginMessage(`❌ ${data.error}`);
+                                toast.error(`❌ ${data.error}`);
                               } else {
-                                setLoginMessage("✅ Connexion réussie !");
+                                toast.success("✅ Connexion réussie !");
                                 setIsAuthenticated(true);
                                 setUserEmail(loginEmail); // Ajouter cette ligne pour définir l'email
-                                setPage("home");
+                                setTimeout(() => {
+                                  setPage("home");
+                                }, 2000);
                               }
                             } catch (err) {
                               console.error(err);
-                              setLoginMessage("❌ Erreur de connexion au serveur");
+                              toast.error("❌ Erreur de connexion au serveur");
                             }
                           }}
                         >
@@ -443,16 +525,18 @@ export default function ZenKeyApp() {
                               });
                               const data = await res.json();
                               if (!res.ok) {
-                                setRegisterMessage(`❌ ${data.error}`);
+                                toast.error(`❌ ${data.error}`);
                               } else {
-                                setRegisterMessage("✅ Compte créé !");
+                                toast.success("✅ Compte créé !");
                                 setIsAuthenticated(true);
                                 setUserEmail(registerEmail); // Ajouter cette ligne pour définir l'email
-                                setPage("home");
+                                setTimeout(() => {
+                                  setPage("home");
+                                }, 2000);
                               }
                             } catch (err) {
                               console.error(err);
-                              setRegisterMessage("❌ Erreur de connexion au serveur");
+                              toast.error("❌ Erreur de connexion au serveur");
                             }
                           }}
                         >
