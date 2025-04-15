@@ -32,6 +32,8 @@ export default function ZenKeyApp() {
   const [errorMessage, setErrorMessage] = useState("");
   const [usbState, setUsbState] = useState<"waiting" | "inserted" | "removed">("waiting");
   const [usbPath, setUsbPath] = useState("");
+  const [mainAction, setMainAction] = useState<'none' | 'scan' | 'format'>("none");
+  const [formatProgress, setFormatProgress] = useState(0);
 
   type InfectedFile = {
     path: string;
@@ -144,14 +146,41 @@ export default function ZenKeyApp() {
       return;
     }
 
+    if (usbState !== "inserted") {
+      toast.error("❌ Aucune clé USB détectée !");
+      return;
+    }
+
+    setMainAction("scan");
     setScanStatus("scanning");
     setInfectedFiles([]);
     setScanProgress(0);
     setIsButtonPressed(true);
     setTimeout(() => setIsButtonPressed(false), 300);
 
-    // Envoi d'une commande de scan au backend
-    socket.emit("analyze");
+    // Simuler progression (pour démonstration)
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+      progress += 5;
+      setScanProgress(progress);
+      if (progress >= 100) {
+        clearInterval(progressInterval);
+        
+        // Envoi d'une commande de scan au backend
+        socket.emit("analyze");
+        
+        // Dans un cas réel, nous attendrions la réponse du backend
+        // Ici on simule un délai
+        setTimeout(() => {
+          if (Math.random() > 0.7) {
+            setScanStatus("threat");
+          } else {
+            setScanStatus("clean");
+          }
+          setTimeout(() => setMainAction("none"), 500);
+        }, 1000);
+      }
+    }, 100);
   };
 
   const handleLogout = () => {
@@ -168,10 +197,34 @@ export default function ZenKeyApp() {
     }, 2000);
   };
 
-  // Calculer les paramètres du cercle de progression
-  const circleRadius = 95;
-  const circumference = 2 * Math.PI * circleRadius;
-  const strokeDashoffset = circumference - (scanProgress / 100) * circumference;
+  const handleFormat = () => {
+    if (!isAuthenticated) {
+      alert("🚫 Vous devez être connecté pour formater la clé.");
+      return;
+    }
+    
+    if (usbState !== "inserted") {
+      toast.error("❌ Aucune clé USB détectée !");
+      return;
+    }
+    
+    setMainAction("format");
+    setFormatProgress(0);
+    setIsButtonPressed(true);
+    setTimeout(() => setIsButtonPressed(false), 300);
+    
+    // Simuler une progression
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+      progress += 5;
+      setFormatProgress(progress);
+      if (progress >= 100) {
+        clearInterval(progressInterval);
+        toast.success("✅ Clé USB formatée (simulation)");
+        setTimeout(() => setMainAction("none"), 500);
+      }
+    }, 100);
+  };
 
   return (
     <div className="h-screen bg-gradient-to-br from-gray-50 to-gray-100 text-gray-900 font-sans p-0 touch-manipulation overflow-hidden flex items-center justify-center">
@@ -245,133 +298,121 @@ export default function ZenKeyApp() {
                     "bg-red-100": scanStatus === "error"
                   }
                 )}>
-                  {/* Cercle de progression SVG optimisé */}
-                  <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 240 240">
-                    {/* Effet de lueur d'arrière-plan */}
-                    <defs>
-                      <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-                        <stop offset="0%" stopColor={
-                          scanStatus === "idle" ? "rgba(59, 130, 246, 0.6)" :
-                            scanStatus === "scanning" ? "rgba(59, 130, 246, 0.8)" :
-                              scanStatus === "clean" ? "rgba(34, 197, 94, 0.6)" :
-                                scanStatus === "threat" ? "rgba(239, 68, 68, 0.6)" :
-                                  scanStatus === "error" ? "rgba(239, 68, 68, 0.6)" :
-                                    "rgba(107, 114, 128, 0.4)"
-                        } />
-
-                        <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
-                      </radialGradient>
-
-                      <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor={
-                          scanStatus === "scanning" ? "#3b82f6" :
-                            scanStatus === "clean" ? "#10b981" :
-                              scanStatus === "threat" ? "#ef4444" :
-                                scanStatus === "error" ? "#ef4444" :
-                                  "#3b82f6"
-                        } />
-
-                        <stop offset="100%" stopColor={
-                          scanStatus === "scanning" ? "#6366f1" :
-                            scanStatus === "clean" ? "#22c55e" :
-                              scanStatus === "threat" ? "#f87171" :
-                                scanStatus === "error" ? "#f87171" :
-                                  "#6366f1"
-                        } />
-
-                      </linearGradient>
-
-                      <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur stdDeviation="3" result="blur" />
-                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                      </filter>
-                    </defs>
-
-                    {/* Effet de lueur */}
-                    <circle
-                      cx="120"
-                      cy="120"
-                      r="110"
-                      fill="url(#bgGlow)"
-                      className="animate-pulse-slow"
-                    />
-
-                    {/* Cercle de fond avec effet de profondeur */}
-                    <circle
-                      cx="120"
-                      cy="120"
-                      r={circleRadius}
-                      className="fill-none stroke-2 opacity-20"
-                      style={{
-                        stroke: scanStatus === "idle" ? "#93c5fd" :
-                          scanStatus === "scanning" ? "#93c5fd" :
-                            scanStatus === "clean" ? "#86efac" : "#fca5a5",
-                        filter: "drop-shadow(0 0 2px rgba(0, 0, 0, 0.15))"
-                      }}
-                      strokeWidth="8"
-                    />
-
-                    {/* Cercle de progression avec gradient */}
-                    {(scanStatus === "scanning" || scanStatus === "clean" || scanStatus === "threat") && (
-                      <circle
-                        cx="120"
-                        cy="120"
-                        r={circleRadius}
-                        className="fill-none transition-all duration-700 ease-out"
-                        stroke="url(#progressGradient)"
-                        strokeWidth="8"
-                        strokeLinecap="round"
-                        strokeDasharray={circumference}
-                        strokeDashoffset={scanStatus === "scanning" ? strokeDashoffset : 0}
-                        filter="url(#glow)"
-                      />
-                    )}
-                  </svg>
-
-                  {/* Bouton de scan style iOS */}
-                  <Button
-                    disabled={!isAuthenticated}
-                    className={cn(
-                      "w-40 h-40 rounded-full text-lg transition-all duration-300 z-10",
-                      "bg-gradient-to-b from-blue-500 to-blue-600",
-                      "border border-blue-400/50",
-                      "shadow-lg shadow-blue-300/30",
-                      !isTouchDevice && "hover:scale-105 hover:shadow-xl",
-                      "active:scale-95 active:shadow-inner active:bg-blue-700",
-                      "focus:outline-none focus:ring-4 focus:ring-blue-300/50",
-                      isButtonPressed && "ios-button-press",
-                      {
-                        "bg-gradient-to-b from-blue-500 to-blue-600": scanStatus === "idle",
-                        "bg-gradient-to-b from-blue-600 to-blue-700": scanStatus === "scanning",
-                        "bg-gradient-to-b from-green-500 to-green-600": scanStatus === "clean",
-                        "bg-gradient-to-b from-red-500 to-red-600": scanStatus === "threat" || scanStatus === "error"
-                      },
-                      !isAuthenticated && "opacity-50 cursor-not-allowed"
-                    )}
-                    onClick={handleScan}
-                    onTouchStart={() => setIsButtonPressed(true)}
-                    onTouchEnd={() => setIsButtonPressed(false)}
-                    onMouseDown={() => !isTouchDevice && setIsButtonPressed(true)}
-                    onMouseUp={() => !isTouchDevice && setIsButtonPressed(false)}
-                    onMouseLeave={() => !isTouchDevice && isButtonPressed && setIsButtonPressed(false)}
-                  >
-                    <div className="relative flex items-center justify-center">
+                  {/* Gélule de progression avec deux actions */}
+                  <div className="relative w-96 max-w-full mx-auto flex flex-col items-center justify-center">
+                    {/* Suppression du cercle bleu en arrière-plan */}
+                    <div
+                      className={cn(
+                        "relative flex w-full h-20 overflow-hidden transition-all duration-500 bg-white",
+                        "shadow-2xl shadow-blue-100/40 border border-gray-100",
+                        mainAction === "scan" && "bg-blue-50",
+                        mainAction === "format" && "bg-yellow-50"
+                      )}
+                      style={{ borderRadius: 40 }}
+                    >
+                      {/* Barre de séparation centrale */}
                       <div className={cn(
-                        "absolute w-full h-full rounded-full animate-ping",
-                        "opacity-30 bg-blue-600",
-                        !isButtonPressed && "hidden"
-                      )}></div>
-                      <div className="flex flex-col items-center justify-center gap-1">
-                        {scanStatus === "scanning" && (
+                        "absolute left-1/2 top-3 h-14 w-1 bg-gray-200 rounded-full z-20 transition-all duration-500 -translate-x-1/2",
+                        (mainAction === "scan" || mainAction === "format") && "opacity-0 scale-0"
+                      )} />
+                      {/* Progression horizontale pour Scan */}
+                      {mainAction === "scan" && (
+                        <div
+                          className="absolute left-0 top-0 h-full bg-blue-500/30 z-0 transition-all duration-500"
+                          style={{
+                            width: `${scanProgress}%`,
+                            borderTopLeftRadius: 40,
+                            borderBottomLeftRadius: 40,
+                            borderTopRightRadius: scanProgress === 100 ? 40 : 0,
+                            borderBottomRightRadius: scanProgress === 100 ? 40 : 0,
+                          }}
+                        />
+                      )}
+                      
+                      {/* Progression pour Format */}
+                      {mainAction === "format" && (
+                        <div
+                          className="absolute left-0 top-0 h-full bg-yellow-400/30 z-0 transition-all duration-500"
+                          style={{
+                            width: `${formatProgress}%`,
+                            borderTopLeftRadius: 40,
+                            borderBottomLeftRadius: 40,
+                            borderTopRightRadius: formatProgress === 100 ? 40 : 0,
+                            borderBottomRightRadius: formatProgress === 100 ? 40 : 0,
+                          }}
+                        />
+                      )}
+                      {/* Scanner */}
+                      <Button
+                        disabled={!isAuthenticated || mainAction === "format" || usbState !== "inserted"}
+                        className={cn(
+                          "flex-1 h-20 text-lg font-semibold transition-all duration-500 flex items-center justify-center relative z-10",
+                          mainAction === "scan" 
+                            ? "rounded-full bg-gradient-to-r from-blue-400 to-blue-500 text-white scale-105 active:!bg-blue-100 active:!text-blue-700 left-0 right-0 mx-auto absolute inset-0 w-full" 
+                            : "rounded-l-full rounded-r-none",
+                          mainAction === "format"
+                            ? "scale-0 opacity-0 pointer-events-none absolute left-0 top-0 w-0"
+                            : "bg-white text-blue-700 hover:bg-blue-50 active:bg-blue-100",
+                          (!isAuthenticated || usbState !== "inserted") && "opacity-50 cursor-not-allowed border-gray-200",
+                          "border border-r-0 border-blue-200"
+                        )}
+                        style={{ borderTopLeftRadius: 40, borderBottomLeftRadius: 40, borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
+                        onClick={handleScan}
+                        onTouchStart={() => setIsButtonPressed(true)}
+                        onTouchEnd={() => setIsButtonPressed(false)}
+                        onMouseDown={() => !isTouchDevice && setIsButtonPressed(true)}
+                        onMouseUp={() => !isTouchDevice && setIsButtonPressed(false)}
+                        onMouseLeave={() => !isTouchDevice && isButtonPressed && setIsButtonPressed(false)}
+                      >
+                        {mainAction === "scan" && (
                           <span className="text-base font-medium">{scanProgress}%</span>
                         )}
-                        <span>Scanner ma clé</span>
-                      </div>
+                        <span>Scanner</span>
+                      </Button>
+                      {/* Formater */}
+                      <Button
+                        disabled={!isAuthenticated || mainAction === "scan" || usbState !== "inserted"}
+                        className={cn(
+                          "flex-1 h-20 text-lg font-semibold transition-all duration-500 flex items-center justify-center relative z-10",
+                          mainAction === "format" 
+                            ? "rounded-full bg-gradient-to-l from-yellow-400 to-yellow-500 text-white scale-105 active:!bg-yellow-100 active:!text-yellow-700 left-0 right-0 mx-auto absolute inset-0 w-full" 
+                            : "rounded-r-full rounded-l-none",
+                          mainAction === "scan"
+                            ? "scale-0 opacity-0 pointer-events-none absolute right-0 top-0 w-0"
+                            : "bg-white text-yellow-700 hover:bg-yellow-50 active:bg-yellow-100",
+                          (!isAuthenticated || usbState !== "inserted") && "opacity-50 cursor-not-allowed border-gray-200",
+                          "border border-l-0 border-yellow-200"
+                        )}
+                        style={{ borderTopRightRadius: 40, borderBottomRightRadius: 40, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+                        onClick={handleFormat}
+                        onTouchStart={() => setIsButtonPressed(true)}
+                        onTouchEnd={() => setIsButtonPressed(false)}
+                        onMouseDown={() => !isTouchDevice && setIsButtonPressed(true)}
+                        onMouseUp={() => !isTouchDevice && setIsButtonPressed(false)}
+                        onMouseLeave={() => !isTouchDevice && isButtonPressed && setIsButtonPressed(false)}
+                      >
+                        {mainAction === "format" && (
+                          <span className="text-base font-medium">{formatProgress}%</span>
+                        )}
+                        <span>Formater</span>
+                      </Button>
                     </div>
-                  </Button>
+                  </div>
                 </div>
 
                 <div className="mt-4">
+                  {!isAuthenticated && (
+                    <div className="text-amber-600 bg-amber-50/80 backdrop-blur-sm p-3 rounded-xl shadow-sm border border-amber-100 mb-4">
+                      ⚠️ Vous devez vous connecter pour utiliser les fonctionnalités
+                    </div>
+                  )}
+                  
+                  {isAuthenticated && usbState !== "inserted" && (
+                    <div className="text-amber-600 bg-amber-50/80 backdrop-blur-sm p-3 rounded-xl shadow-sm border border-amber-100 mb-4">
+                      ⚠️ Insérez une clé USB pour utiliser les fonctionnalités
+                    </div>
+                  )}
+                  
                   {scanStatus === "idle" && (
                     <p className="text-gray-500">Prêt à scanner</p>
                   )}
