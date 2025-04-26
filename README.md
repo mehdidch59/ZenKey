@@ -2,8 +2,6 @@
 
 Une solution moderne et sécurisée pour l'analyse antivirus des clés USB, utilisant React Router pour l'interface et ClamAV pour la détection des menaces.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/mehdidch59/zenkey/tree/main/default)
-
 ## Fonctionnalités
 
 - 🔍 Analyse antivirus des clés USB via ClamAV
