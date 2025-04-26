@@ -67,12 +67,36 @@ export default function ZenKeyApp() {
       console.log("🟢 USB détectée", data);
       setUsbState("inserted");
       setUsbPath(data.path);
+      // Notification sonore et visuelle 
+      toast.success("✅ Clé USB détectée !");
     });
 
     socket.on("usb_removed", () => {
       console.log("🔴 USB retirée");
       setUsbState("removed");
       setUsbPath("");
+      // Notification sonore et visuelle 
+      toast.error("❌ Clé USB retirée !");
+    });
+
+    // Écouter les événements de progression
+    socket.on("scan_progress", (data) => {
+      console.log("📊 Progression du scan :", data.progress);
+      setScanProgress(data.progress);
+    });
+
+    socket.on("format_progress", (data) => {
+      console.log("📊 Progression du formatage :", data.progress);
+      setFormatProgress(data.progress);
+    });
+
+    socket.on("format_complete", (data) => {
+      if (data.success) {
+        toast.success("✅ Formatage terminé avec succès !");
+      } else {
+        toast.error("❌ Échec du formatage !");
+      }
+      setTimeout(() => setMainAction("none"), 500);
     });
 
     setUsbState("waiting");
@@ -85,12 +109,14 @@ export default function ZenKeyApp() {
         setInfectedFiles([]);
         setScanProgress(0);
         setErrorMessage(data.report || "❌ Erreur inconnue");
+        setTimeout(() => setMainAction("none"), 500);
         return;
       }
 
       if (!data?.report) {
         console.warn("⚠️ Pas de rapport reçu !");
         setScanStatus("idle");
+        setTimeout(() => setMainAction("none"), 500);
         return;
       }
 
@@ -114,9 +140,8 @@ export default function ZenKeyApp() {
 
       setInfectedFiles(foundFiles);
       setScanStatus(infectedCount > 0 ? "threat" : "clean");
+      setTimeout(() => setMainAction("none"), 500);
     });
-
-    console.log(usbState);
 
     return () => {
       socket.off("connect");
@@ -125,6 +150,9 @@ export default function ZenKeyApp() {
       socket.off("scan_result");
       socket.off("usb_inserted");
       socket.off("usb_removed");
+      socket.off("scan_progress");
+      socket.off("format_progress");
+      socket.off("format_complete");
     };
   }, []);
 
@@ -158,29 +186,9 @@ export default function ZenKeyApp() {
     setIsButtonPressed(true);
     setTimeout(() => setIsButtonPressed(false), 300);
 
-    // Simuler progression (pour démonstration)
-    let progress = 0;
-    const progressInterval = setInterval(() => {
-      progress += 5;
-      setScanProgress(progress);
-      if (progress >= 100) {
-        clearInterval(progressInterval);
-        
-        // Envoi d'une commande de scan au backend
-        socket.emit("analyze");
-        
-        // Dans un cas réel, nous attendrions la réponse du backend
-        // Ici on simule un délai
-        setTimeout(() => {
-          if (Math.random() > 0.7) {
-            setScanStatus("threat");
-          } else {
-            setScanStatus("clean");
-          }
-          setTimeout(() => setMainAction("none"), 500);
-        }, 1000);
-      }
-    }, 100);
+    // Envoi d'une commande de scan au backend
+    socket.emit("analyze");
+    toast.info("🔍 Analyse en cours...");
   };
 
   const handleLogout = () => {
@@ -202,28 +210,20 @@ export default function ZenKeyApp() {
       alert("🚫 Vous devez être connecté pour formater la clé.");
       return;
     }
-    
+
     if (usbState !== "inserted") {
       toast.error("❌ Aucune clé USB détectée !");
       return;
     }
-    
+
     setMainAction("format");
     setFormatProgress(0);
     setIsButtonPressed(true);
     setTimeout(() => setIsButtonPressed(false), 300);
-    
-    // Simuler une progression
-    let progress = 0;
-    const progressInterval = setInterval(() => {
-      progress += 5;
-      setFormatProgress(progress);
-      if (progress >= 100) {
-        clearInterval(progressInterval);
-        toast.success("✅ Clé USB formatée (simulation)");
-        setTimeout(() => setMainAction("none"), 500);
-      }
-    }, 100);
+
+    // Émission de l'événement de formatage
+    socket.emit("format");
+    toast.info("🔧 Formatage en cours...");
   };
 
   return (
@@ -291,7 +291,6 @@ export default function ZenKeyApp() {
                 <div className={cn(
                   "w-64 h-64 mx-auto rounded-full flex items-center justify-center transition-all duration-300 relative",
                   {
-                    "bg-blue-50": scanStatus === "idle",
                     "bg-blue-100": scanStatus === "scanning",
                     "bg-green-50": scanStatus === "clean",
                     "bg-red-50": scanStatus === "threat",
@@ -328,7 +327,7 @@ export default function ZenKeyApp() {
                           }}
                         />
                       )}
-                      
+
                       {/* Progression pour Format */}
                       {mainAction === "format" && (
                         <div
@@ -347,8 +346,8 @@ export default function ZenKeyApp() {
                         disabled={!isAuthenticated || mainAction === "format" || usbState !== "inserted"}
                         className={cn(
                           "flex-1 h-20 text-lg font-semibold transition-all duration-500 flex items-center justify-center relative z-10",
-                          mainAction === "scan" 
-                            ? "rounded-full bg-gradient-to-r from-blue-400 to-blue-500 text-white scale-105 active:!bg-blue-100 active:!text-blue-700 left-0 right-0 mx-auto absolute inset-0 w-full" 
+                          mainAction === "scan"
+                            ? "rounded-full bg-gradient-to-r from-blue-400 to-blue-500 text-white scale-105 active:!bg-blue-100 active:!text-blue-700 left-0 right-0 mx-auto absolute inset-0 w-full"
                             : "rounded-l-full rounded-r-none",
                           mainAction === "format"
                             ? "scale-0 opacity-0 pointer-events-none absolute left-0 top-0 w-0"
@@ -374,8 +373,8 @@ export default function ZenKeyApp() {
                         disabled={!isAuthenticated || mainAction === "scan" || usbState !== "inserted"}
                         className={cn(
                           "flex-1 h-20 text-lg font-semibold transition-all duration-500 flex items-center justify-center relative z-10",
-                          mainAction === "format" 
-                            ? "rounded-full bg-gradient-to-l from-yellow-400 to-yellow-500 text-white scale-105 active:!bg-yellow-100 active:!text-yellow-700 left-0 right-0 mx-auto absolute inset-0 w-full" 
+                          mainAction === "format"
+                            ? "rounded-full bg-gradient-to-l from-yellow-400 to-yellow-500 text-white scale-105 active:!bg-yellow-100 active:!text-yellow-700 left-0 right-0 mx-auto absolute inset-0 w-full"
                             : "rounded-r-full rounded-l-none",
                           mainAction === "scan"
                             ? "scale-0 opacity-0 pointer-events-none absolute right-0 top-0 w-0"
@@ -406,13 +405,13 @@ export default function ZenKeyApp() {
                       ⚠️ Vous devez vous connecter pour utiliser les fonctionnalités
                     </div>
                   )}
-                  
+
                   {isAuthenticated && usbState !== "inserted" && (
                     <div className="text-amber-600 bg-amber-50/80 backdrop-blur-sm p-3 rounded-xl shadow-sm border border-amber-100 mb-4">
                       ⚠️ Insérez une clé USB pour utiliser les fonctionnalités
                     </div>
                   )}
-                  
+
                   {scanStatus === "idle" && (
                     <p className="text-gray-500">Prêt à scanner</p>
                   )}

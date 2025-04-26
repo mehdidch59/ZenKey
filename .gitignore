@@ -4,3 +4,6 @@
 # React Router
 /.react-router/
 /build/
+/.vite/
+
+/Back/usb-scan-backend/node_modules
